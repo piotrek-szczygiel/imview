@@ -1,11 +1,14 @@
-imview.exe: imview.asm
-	fasm imview.asm
+NAME := imview
+OUT  := $(NAME).exe
+
+$(OUT): $(NAME).asm
+	fasm $(NAME).asm
 
 clean:
-	rm imview.exe
+	rm $(OUT)
 
-test: imview.exe
-	dosbox imview.exe
+test: $(OUT)
+	dosbox "$(OUT)"
 
-debug: calc.exe
-	dosbox .
+debug: $(OUT)
+	dosbox -c "mount c ." -c "d:\td.exe c:\$(OUT)"
