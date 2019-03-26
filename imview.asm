@@ -25,7 +25,9 @@ start:
     call bmp_palette
     call bmp_draw
 
-    call read_char
+    xor ah, ah
+    int 0x16
+
     call file_close
     call mode_text
 
@@ -104,37 +106,29 @@ bmp_prepare:
     cmp [bmp.header + 1], byte "M"
     jne error
 
-    mov al, byte 1
-    xor cx, cx
-    mov dx, word 16
-    call file_seek
+    mov cx, word 16
+    call file_skip
 
     mov cx, word 2
     mov dx, word bmp.width
     call file_read
 
-    mov al, byte 1
-    xor cx, cx
-    mov dx, word 2
-    call file_seek
+    mov cx, word 2
+    call file_skip
 
     mov cx, word 2
     mov dx, word bmp.height
     call file_read
 
-    mov al, byte 1
-    xor cx, cx
-    mov dx, word 22
-    call file_seek
+    mov cx, word 22
+    call file_skip
 
     mov cx, word 2
     mov dx, word bmp.num_colors
     call file_read
 
-    mov al, byte 1
-    xor cx, cx
-    mov dx, word 6
-    call file_seek
+    mov cx, word 6
+    call file_skip
 
     mov dx, 0x03c8
     mov al, 0
@@ -180,13 +174,26 @@ file_read:
     jc error
     ret
 
-; Set current file position
-;   AL: 0 - start
-;       1 - current
-;       2 - end
-;   CX:DX - offset
-file_seek:
+; Skip bytes in current file
+;   CX - offset
+file_skip:
     mov ah, 0x42
+    mov al, 1
+    mov dx, cx
+    xor cx, cx
+    mov bx, word [file.handle]
+    int 0x21
+    mov dx, word str_error_file_seek
+    jc error
+    ret
+
+; Set position in current file
+;   CX - offset
+file_set_pos:
+    mov ah, 0x42
+    mov al, 0
+    mov dx, cx
+    xor cx, cx
     mov bx, word [file.handle]
     int 0x21
     mov dx, word str_error_file_seek
@@ -223,15 +230,6 @@ mode_vga:
 mode_text:
     mov ax, 0x0003
     int 0x10
-    ret
-
-; Read character from standard input
-;
-; return:
-;   AL - character read
-read_char:
-    mov ah, 0x08
-    int 0x21
     ret
 
 segment text1
