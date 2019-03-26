@@ -23,29 +23,7 @@ start:
 
     call bmp_prepare
     call bmp_palette
-
-    mov ax, word [bmp.height]
-    mov [esp], word ax
-    .loop:
-        dec word [esp]
-
-        mov cx, word [bmp.width]
-        mov dx, word bmp.row
-        call file_read
-
-        mov cx, word [bmp.width]
-        mov si, word bmp.row
-
-        mov ax, word [esp]
-        mov bx, word 320
-        mul bx
-
-        mov di, ax
-        rep movsb
-
-        mov ax, [esp]
-        cmp ax, word 0
-        ja .loop
+    call bmp_draw
 
     call read_char
     call file_close
@@ -66,11 +44,34 @@ exit:
     mov ah, 0x4c                            ; terminates the program by
     int 0x21                                ; invoking DOS interruption
 
+bmp_draw:
+    mov ax, word [bmp.height]
+    mov [counter], word ax
+    .loop:
+        dec word [counter]
+
+        mov cx, word [bmp.width]
+        mov dx, word bmp.row
+        call file_read
+
+        mov cx, word [bmp.width]
+        mov si, word bmp.row
+
+        mov ax, word [counter]
+        mov bx, word 320
+        mul bx
+
+        mov di, ax
+        rep movsb
+
+        cmp [counter], word 0
+        ja .loop
+
+    ret
 
 bmp_palette:
-    mov cx, word 256
-    .loop1:
-        push cx
+    mov [counter], word 256
+    .loop:
         mov cx, word 4
         mov dx, word palette.quad
         call file_read
@@ -86,8 +87,9 @@ bmp_palette:
         shr al, 2
         out dx, al
 
-        pop cx
-        loop .loop1
+        dec word [counter]
+        cmp [counter], word 0
+        ja .loop
 
     ret
 
@@ -256,6 +258,8 @@ palette.b               rb 1
 palette.g               rb 1
 palette.r               rb 1
 palette.padding         rb 1
+
+counter                 rw 1
 
 ; 128 bytes stack
 segment stack1
