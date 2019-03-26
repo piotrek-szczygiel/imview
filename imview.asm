@@ -22,7 +22,8 @@ start:
     call file_open
 
     call bmp_prepare
-    call bmp_palette
+    ;call bmp_palette
+
     call bmp_draw
 
     xor ah, ah
@@ -72,6 +73,10 @@ bmp_draw:
     ret
 
 bmp_palette:
+    mov dx, 0x03c8
+    mov al, 0
+    out dx, al
+
     mov [counter], word 256
     .loop:
         mov cx, word 4
@@ -106,33 +111,46 @@ bmp_prepare:
     cmp [bmp.header + 1], byte "M"
     jne error
 
-    mov cx, word 16
+    mov cx, word 8
     call file_skip
 
-    mov cx, word 2
+    mov cx, word 4
+    mov dx, word bmp.data_offset
+    call file_read
+
+    mov cx, word 4
+    call file_skip
+
+    mov cx, word 4
     mov dx, word bmp.width
     call file_read
 
-    mov cx, word 2
-    call file_skip
-
-    mov cx, word 2
+    mov cx, word 4
     mov dx, word bmp.height
     call file_read
 
-    mov cx, word 22
+    mov cx, word 2
     call file_skip
 
-    mov cx, word 2
-    mov dx, word bmp.num_colors
+    mov cx, 2
+    mov dx, word bmp.depth
     call file_read
 
-    mov cx, word 6
-    call file_skip
+    cmp [bmp.depth], word 8
+    je .8_bit
+    cmp [bmp.depth], word 24
+    je .24_bit
+    mov dx, word str_error_bmp_depth
+    jmp error
 
-    mov dx, 0x03c8
-    mov al, 0
-    out dx, al
+    .8_bit:
+        mov cx, 24
+        call file_skip
+        call bmp_palette
+
+    .24_bit:
+        mov cx, word [bmp.data_offset]
+        call file_set_pos
 
     ret
 
@@ -241,14 +259,17 @@ str_error_file_seek     db "Error while seeking the file!$"
 str_error_file_read     db "Error while reading from file!$"
 
 str_error_bmp_header    db "Invalid BMP header!$"
+str_error_bmp_depth     db "This program only handles 8bit and 24bit bitmaps!$"
 
 file.name               db 128 dup 0
 file.handle             rw 1
 
 bmp.header              rb 2
-bmp.width               rw 1
-bmp.height              rw 1
-bmp.num_colors          rw 1
+bmp.data_offset         rd 1
+bmp.width               rd 1
+bmp.height              rd 1
+bmp.depth               rw 1
+db "XD>"
 bmp.row                 rb 2048
 
 palette.quad:
