@@ -147,12 +147,21 @@ bmp_prepare:
         mov cx, 24
         call file_skip
         call bmp_palette
+        ret
 
     .24_bit:
+        mov dx, 0x03c8
+        mov al, 0
+        out dx, al
+
+        mov si, word rgb_332_palette
+        mov dx, 0x03c9
+        mov cx, 768
+        rep outs dx, byte [ds:si]
+
         mov cx, word [bmp.data_offset]
         call file_set_pos
-
-    ret
+        ret
 
 ; Print string on standard output with newline
 ;   DS:DX - string
@@ -174,11 +183,9 @@ argument_read:
     xor ch, ch
     mov cl, byte [0x80]
     dec cl
-
     cld
-
     rep movsb
-    mov [di], byte 0xab
+
     ret
 
 ; Read from file
@@ -251,6 +258,10 @@ mode_text:
     ret
 
 segment text1
+
+rgb_332_palette:
+file "rgb332.pal"
+
 str_crlf                db 13, 10, "$"
 
 str_error_file_open     db "Unable to open the file!$"
@@ -269,7 +280,6 @@ bmp.data_offset         rd 1
 bmp.width               rd 1
 bmp.height              rd 1
 bmp.depth               rw 1
-db "XD>"
 bmp.row                 rb 2048
 
 palette.quad:
