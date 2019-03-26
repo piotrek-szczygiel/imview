@@ -22,6 +22,7 @@ start:
     call file_open
 
     call bmp_prepare
+    call bmp_palette
 
     mov ax, word [bmp.height]
     mov [esp], word ax
@@ -36,7 +37,7 @@ start:
         mov si, word bmp.row
 
         mov ax, word [esp]
-        mov bx, word [bmp.width]
+        mov bx, word 320
         mul bx
 
         mov di, ax
@@ -65,6 +66,30 @@ exit:
     mov ah, 0x4c                            ; terminates the program by
     int 0x21                                ; invoking DOS interruption
 
+
+bmp_palette:
+    mov cx, word 256
+    .loop1:
+        push cx
+        mov cx, word 4
+        mov dx, word palette.quad
+        call file_read
+
+        mov dx, 0x03c9
+        mov al, byte [palette.r]
+        shr al, 2
+        out dx, al
+        mov al, byte [palette.g]
+        shr al, 2
+        out dx, al
+        mov al, byte [palette.b]
+        shr al, 2
+        out dx, al
+
+        pop cx
+        loop .loop1
+
+    ret
 
 bmp_prepare:
     mov cx, word 2
@@ -104,19 +129,16 @@ bmp_prepare:
     mov dx, word bmp.num_colors
     call file_read
 
-    ; palette
-    mov al, byte 1
-    xor cx, cx
-    mov dx, word 1024
-    call file_seek
-
     mov al, byte 1
     xor cx, cx
     mov dx, word 6
     call file_seek
 
-    ret
+    mov dx, 0x03c8
+    mov al, 0
+    out dx, al
 
+    ret
 
 ; Print string on standard output with newline
 ;   DS:DX - string
@@ -228,6 +250,12 @@ bmp.width               rw 1
 bmp.height              rw 1
 bmp.num_colors          rw 1
 bmp.row                 rb 2048
+
+palette.quad:
+palette.b               rb 1
+palette.g               rb 1
+palette.r               rb 1
+palette.padding         rb 1
 
 ; 128 bytes stack
 segment stack1
