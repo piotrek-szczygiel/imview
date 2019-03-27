@@ -82,14 +82,18 @@ bmp_draw:
                 mov dx, word bgr
                 call file_read
 
-                shr [bgr.r], 5
-                shl [bgr.r], 5
-                shr [bgr.g], 5
-                shl [bgr.g], 2
-                shr [bgr.b], 6
-                mov al, byte [bgr.r]
-                or al, byte [bgr.g]
-                or al, byte [bgr.b]
+                mov al, [bgr.r]
+                and al, 11100000b
+
+                mov bl, [bgr.g]
+                and bl, 11100000b
+                shr bl, 3
+
+                mov dl, [bgr.b]
+                shr dl, 6
+
+                or al, bl
+                or al, dl
 
                 mov bx, word row
                 add bx, word [counter2]
@@ -153,6 +157,39 @@ bmp_read_palette:
 
     ret
 
+generate_332_palette:
+    mov dx, 0x03c8
+    mov al, 0
+    out dx, al
+
+    mov dx, 0x03c9
+    mov cl, 0
+    .332_palette:
+        mov al, cl
+        and al, 11100000b
+        shr al, 5
+        mov bl, 9
+        mul bl
+        out dx, al
+
+        mov al, cl
+        and al, 00011100b
+        shr al, 2
+        mov bl, 9
+        mul byte bl
+        out dx, al
+
+        mov al, cl
+        and al, 00000011b
+        mov bl, 21
+        mul byte bl
+        out dx, al
+
+        inc cl
+        cmp cl, 0
+        jne .332_palette
+    ret
+
 bmp_prepare:
     mov cx, word 2
     mov dx, word bmp.header
@@ -211,14 +248,7 @@ bmp_prepare:
         ret
 
     .24_bit:
-        mov dx, 0x03c8
-        mov al, 0
-        out dx, al
-
-        mov si, word rgb_332_palette
-        mov dx, 0x03c9
-        mov cx, 768
-        rep outs dx, byte [ds:si]
+        call generate_332_palette
         ret
 
 ; Print string on standard output with newline
@@ -316,9 +346,6 @@ mode_text:
     ret
 
 segment text1
-
-rgb_332_palette         file "rgb332.pal"
-
 str_crlf                db 13, 10, "$"
 
 str_error_file_open     db "Unable to open the file!$"
@@ -330,12 +357,15 @@ str_error_bmp_header    db "Invalid BMP header!$"
 str_error_bmp_depth     db "This program only handles 8bit and 24bit bitmaps!$"
 
 file.name               db 128 dup 0
-file.handle             rw 1
+file.handle             dw 0
+
+cursor.x                db 0
+cursor.y                db 0
 
 bgr:
-bgr.b                   db 1
-bgr.g                   db 1
-bgr.r                   db 1
+bgr.b                   rb 1
+bgr.g                   rb 1
+bgr.r                   rb 1
 
 bmp.header              rb 2
 bmp.data_offset         rd 1
@@ -357,5 +387,5 @@ counter2                rw 1
 
 ; 128 bytes stack
 segment stack1
-stack1_head:    rb 126
-stack1_tail:    rb 2
+stack1_head            rb 126
+stack1_tail            rb 2

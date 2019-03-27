@@ -8,10 +8,10 @@ clean:
 	rm $(OUT)
 
 test: $(OUT)
-	dosbox -c "mount c ." -c "c:" -c "$(OUT) xp.bmp"
+	dosbox -c "mount c ." -c "c:" -c "$(OUT) images\xp.bmp"
 
 debug: $(OUT)
-	dosbox -c "mount c ." -c "c:" -c "d:\td.exe $(OUT) xp.bmp"
+	dosbox -c "mount c ." -c "c:" -c "d:\td.exe $(OUT) images\xp.bmp"
 
 dosbox: $(OUT)
 	dosbox .
