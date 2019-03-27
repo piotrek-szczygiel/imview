@@ -24,25 +24,40 @@ start:
 
     .main_loop:
         call bmp_draw
+
         xor ah, ah
         int 0x16
 
         cmp ax, 0x011b
         je .exit
 
-;       cmp ax, 0x4800
-;       je .cursor_up
+        cmp ax, 0x4800
+        je .cursor_up
 
-;       cmp ax, 0x5000
-;       je .cursor_down
+        cmp ax, 0x5000
+        je .cursor_down
 
-;       cmp ax, 0x4d00
-;       je .cursor_right
+        cmp ax, 0x4d00
+        je .cursor_right
 
-;       cmp ax, 0x4b00
-;       je .cursor_left
+        cmp ax, 0x4b00
+        je .cursor_left
 
-        jmp .main_loop
+        .cursor_up:
+            dec word [cursor.y]
+            jmp .main_loop
+
+        .cursor_down:
+            inc word [cursor.y]
+            jmp .main_loop
+
+        .cursor_left:
+            dec word [cursor.x]
+            jmp .main_loop
+
+        .cursor_right:
+            inc word [cursor.x]
+            jmp .main_loop
 
 .exit:
     call file_close
@@ -63,96 +78,120 @@ exit:
     mov ah, 0x4c                            ; terminates the program by
     int 0x21                                ; invoking DOS interruption
 
-; Display row
-;   AX - row number
-display_row:
-    mov dx, ax
-    shl ax, 8
-    shl dx, 6
-    add ax, dx
-
-    mov cx, word [row.width]
-    mov si, word row
-    mov di, ax
-    rep movsb
-    ret
-
 bmp_draw:
     mov cx, word [bmp.data_offset]
     call file_set_pos
 
+    mov ax, word [bmp.height]
+    cmp ax, word [cursor.y]
+    jbe .after_row_skip
+    sub ax, word [cursor.y]
+    mov dx, word [bmp.width]
     cmp [bmp.depth], word 8
-    je .8_bit
+    je .xd
+    mov bx, dx
+    add dx, bx
+    add dx, bx
+
+    .xd:
+    mul dx
+    mov cx, dx
+    mov dx, ax
+
+    call file_skip_long
+    .after_row_skip:
+
+    mov [row.skip], word 0
+    mov ax, word [bmp.width]
+    cmp ax, word [display.width]
+    jbe .after_skip_set
+    sub ax, word [display.width]
     cmp [bmp.depth], word 24
-    je .24_bit
-    mov dx, word str_error_bmp_depth
-    jmp error
+    jne .skip_set_8_bit
+    mov dx, word 3
+    mul ax
+    .skip_set_8_bit:
+    mov [row.skip], word ax
+    .after_skip_set:
 
-    .24_bit:
-        mov ax, word [bmp.height]
-        mov [counter], word ax
-        .loop_24_bit:
-            dec word [counter]
+    mov ax, word [display.height]
+    mov [i], word ax
+    .row_loop:
+        dec word [i]
 
-            mov [counter2], word 0
-            .loop_row:
+        cmp [bmp.depth], word 24
+        je .24_bit
+
+        .8_bit:
+            mov cx, word [display.width]
+            mov dx, word row
+            call file_read
+
+            mov ax, word [i]
+            call display_row
+            jmp .row_end
+
+        .24_bit:
+            mov ax, word [i]
+            call calculate_row
+
+            mov [j], word 0
+            .cell_loop:
                 mov cx, word 3
                 mov dx, word bgr
                 call file_read
 
-                mov al, [bgr.r]
+                mov al, byte [bgr.r]
                 and al, 11100000b
+                and [bgr.g], byte 11100000b
+                shr [bgr.g], byte 3
+                shr [bgr.b], byte 6
+                or al, byte [bgr.g]
+                or al, byte [bgr.b]
 
-                mov bl, [bgr.g]
-                and bl, 11100000b
-                shr bl, 3
+                mov [es:di], byte al
+                inc di
 
-                mov dl, [bgr.b]
-                shr dl, 6
+                inc word [j]
+                mov ax, word [display.width]
+                cmp [j], word ax
+                jb .cell_loop
 
-                or al, bl
-                or al, dl
+            jmp .row_end
 
-                mov bx, word row
-                add bx, word [counter2]
+            .row_end:
+                mov cx, word [row.skip]
+                call file_skip
 
-                mov [bx], byte al
+                cmp [i], word 0
+                ja .row_loop
+    ret
 
-                inc word [counter2]
-                mov ax, word [bmp.width]
-                cmp [counter2], word ax
-                jb .loop_row
+; Display row
+;   AX - row number
+display_row:
+    call calculate_row
+    mov cx, word [display.width]
+    mov si, word row
+    rep movsb
+    ret
 
-            mov ax, word [counter]
-            call display_row
-
-            cmp [counter], word 0
-            ja .loop_24_bit
-        ret
-
-    .8_bit:
-        mov ax, word [bmp.height]
-        mov [counter], word ax
-        .loop_8_bit:
-            dec word [counter]
-
-            mov cx, word [bmp.width]
-            mov dx, word row
-            call file_read
-
-            mov ax, word [counter]
-            call display_row
-
-            cmp [counter], word 0
-            ja .loop_8_bit
-        ret
+; Calculate offset in VGA
+;   AX - row number
+calculate_row:
+    mov dx, ax
+    shl ax, 8
+    shl dx, 6
+    add ax, dx
+    mov di, ax
+    ret
 
 bmp_read_palette:
     mov dx, 0x03c8
     mov al, 0
     out dx, al
 
-    mov [counter], word 256
+    mov [i], word 256
     .loop:
         mov cx, word 4
         mov dx, word palette.quad
@@ -169,8 +208,8 @@ bmp_read_palette:
         shr al, 2
         out dx, al
 
-        dec word [counter]
-        cmp [counter], word 0
+        dec word [i]
+        cmp [i], word 0
         ja .loop
     ret
 
@@ -232,21 +271,26 @@ bmp_prepare:
     mov dx, word bmp.width
     call file_read
 
-    mov [row.width], word 320
-
+    mov [display.width], word 320
     mov ax, word [bmp.width]
     cmp ax, word 320
-    jae .continue
-    mov [row.width], word ax
+    jae .after_display_width
+    mov [display.width], word ax
+    .after_display_width:
 
-.continue:
     mov cx, word 4
     mov dx, word bmp.height
     call file_read
 
+    mov [display.height], word 200
+    mov ax, word [bmp.height]
+    cmp ax, word 200
+    jae .after_display_height
+    mov [display.height], word ax
+    .after_display_height:
+
     mov cx, word 2
     call file_skip
-
     mov cx, 2
     mov dx, word bmp.depth
     call file_read
@@ -307,10 +351,14 @@ file_read:
 ; Skip bytes in current file
 ;   CX - offset
 file_skip:
-    mov ah, 0x42
-    mov al, 1
     mov dx, cx
     xor cx, cx
+
+; Skip bytes in current file
+;   CX:DX - offset
+file_skip_long:
+    mov ah, 0x42
+    mov al, 1
     mov bx, word [file.handle]
     int 0x21
     mov dx, word str_error_file_seek
@@ -377,7 +425,10 @@ file.name               db 128 dup 0
 file.handle             dw 0
 
 cursor.x                dw 0
-cursor.y                dw 0
+cursor.y                dw 200
+
+display.width           rw 1
+display.height          rw 1
 
 bgr:
 bgr.b                   rb 1
@@ -390,8 +441,8 @@ bmp.width               rd 1
 bmp.height              rd 1
 bmp.depth               rw 1
 
-row.width               rw 1
-row                     rb 2048
+row                     rb 5760
+row.skip                rw 1
 
 palette.quad:
 palette.b               rb 1
@@ -399,8 +450,9 @@ palette.g               rb 1
 palette.r               rb 1
 palette.padding         rb 1
 
-counter                 rw 1
-counter2                rw 1
+i                       rw 1
+j                       rw 1
+k                       rw 1
 
 ; 128 bytes stack
 segment stack1
