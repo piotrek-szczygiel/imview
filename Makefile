@@ -8,7 +8,7 @@ clean:
 	rm $(OUT)
 
 test: $(OUT)
-	dosbox -c "mount c ." -c "c:" -c "$(OUT) test.bmp"
+	dosbox -c "mount c ." -c "c:" -c "$(OUT) xp.bmp"
 
 debug: $(OUT)
 	dosbox -c "mount c ." -c "c:" -c "d:\td.exe $(OUT) xp.bmp"

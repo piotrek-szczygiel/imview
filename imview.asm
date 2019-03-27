@@ -22,8 +22,6 @@ start:
     call file_open
 
     call bmp_prepare
-    ;call bmp_palette
-
     call bmp_draw
 
     xor ah, ah
@@ -47,6 +45,20 @@ exit:
     mov ah, 0x4c                            ; terminates the program by
     int 0x21                                ; invoking DOS interruption
 
+; Display row
+;   AX - row number
+display_row:
+    mov dx, ax
+    shl ax, 8
+    shl dx, 6
+    add ax, dx
+
+    mov cx, word [row.width]
+    mov si, word row
+    mov di, ax
+    rep movsb
+    ret
+
 bmp_draw:
     mov cx, word [bmp.data_offset]
     call file_set_pos
@@ -64,23 +76,22 @@ bmp_draw:
         .loop_24_bit:
             dec word [counter]
 
-            ; every iteration should read one row
             mov [counter2], word 0
             .loop_row:
                 mov cx, word 3
-                mov dx, word rgb
+                mov dx, word bgr
                 call file_read
 
-                shr [rgb.r], 5
-                shl [rgb.r], 5
-                shr [rgb.g], 5
-                shl [rgb.g], 2
-                shr [rgb.b], 6
-                mov al, byte [rgb.r]
-                or al, byte [rgb.g]
-                or al, byte [rgb.b]
+                shr [bgr.r], 5
+                shl [bgr.r], 5
+                shr [bgr.g], 5
+                shl [bgr.g], 2
+                shr [bgr.b], 6
+                mov al, byte [bgr.r]
+                or al, byte [bgr.g]
+                or al, byte [bgr.b]
 
-                mov bx, word bmp.row
+                mov bx, word row
                 add bx, word [counter2]
 
                 mov [bx], byte al
@@ -91,15 +102,7 @@ bmp_draw:
                 jb .loop_row
 
             mov ax, word [counter]
-            mov dx, ax
-            shl ax, 8
-            shl dx, 6
-            add ax, dx
-
-            mov cx, word [bmp.width]
-            mov si, word bmp.row
-            mov di, ax
-            rep movsb
+            call display_row
 
             cmp [counter], word 0
             ja .loop_24_bit
@@ -112,19 +115,11 @@ bmp_draw:
             dec word [counter]
 
             mov cx, word [bmp.width]
-            mov dx, word bmp.row
+            mov dx, word row
             call file_read
 
             mov ax, word [counter]
-            mov dx, ax
-            shl ax, 8
-            shl dx, 6
-            add ax, dx
-
-            mov cx, word [bmp.width]
-            mov si, word bmp.row
-            mov di, ax
-            rep movsb
+            call display_row
 
             cmp [counter], word 0
             ja .loop_8_bit
@@ -183,6 +178,14 @@ bmp_prepare:
     mov dx, word bmp.width
     call file_read
 
+    mov [row.width], word 320
+
+    mov ax, word [bmp.width]
+    cmp ax, word 320
+    jae .continue
+    mov [row.width], word ax
+
+.continue:
     mov cx, word 4
     mov dx, word bmp.height
     call file_read
@@ -216,7 +219,6 @@ bmp_prepare:
         mov dx, 0x03c9
         mov cx, 768
         rep outs dx, byte [ds:si]
-
         ret
 
 ; Print string on standard output with newline
@@ -315,8 +317,7 @@ mode_text:
 
 segment text1
 
-rgb_332_palette:
-file "rgb332.pal"
+rgb_332_palette         file "rgb332.pal"
 
 str_crlf                db 13, 10, "$"
 
@@ -331,17 +332,19 @@ str_error_bmp_depth     db "This program only handles 8bit and 24bit bitmaps!$"
 file.name               db 128 dup 0
 file.handle             rw 1
 
-rgb:
-rgb.r                   db 1
-rgb.g                   db 1
-rgb.b                   db 1
+bgr:
+bgr.b                   db 1
+bgr.g                   db 1
+bgr.r                   db 1
 
 bmp.header              rb 2
 bmp.data_offset         rd 1
 bmp.width               rd 1
 bmp.height              rd 1
 bmp.depth               rw 1
-bmp.row                 rb 2048
+
+row.width               rw 1
+row                     rb 2048
 
 palette.quad:
 palette.b               rb 1
