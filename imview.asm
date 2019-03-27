@@ -20,13 +20,31 @@ start:
 
     call mode_vga
     call file_open
-
     call bmp_prepare
-    call bmp_draw
 
-    xor ah, ah
-    int 0x16
+    .main_loop:
+        call bmp_draw
+        xor ah, ah
+        int 0x16
 
+        cmp ax, 0x011b
+        je .exit
+
+;       cmp ax, 0x4800
+;       je .cursor_up
+
+;       cmp ax, 0x5000
+;       je .cursor_down
+
+;       cmp ax, 0x4d00
+;       je .cursor_right
+
+;       cmp ax, 0x4b00
+;       je .cursor_left
+
+        jmp .main_loop
+
+.exit:
     call file_close
     call mode_text
 
@@ -154,7 +172,6 @@ bmp_read_palette:
         dec word [counter]
         cmp [counter], word 0
         ja .loop
-
     ret
 
 generate_332_palette:
@@ -359,8 +376,8 @@ str_error_bmp_depth     db "This program only handles 8bit and 24bit bitmaps!$"
 file.name               db 128 dup 0
 file.handle             dw 0
 
-cursor.x                db 0
-cursor.y                db 0
+cursor.x                dw 0
+cursor.y                dw 0
 
 bgr:
 bgr.b                   rb 1
