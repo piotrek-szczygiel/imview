@@ -47,15 +47,20 @@ bmp_draw:
 
     mov ax, word [bmp.height]
     cmp ax, word 200
-    jbe .after_row_offset
+    jbe .after_y_offset
     sub ax, word 200
     sub ax, word [cursor.y]
+    cmp [bmp.depth], word 8
+    je .dont_m3_y_offset
+    mov dx, word 3
+    mul dx
+    .dont_m3_y_offset:
     mov dx, word [bmp.width]
     mul dx
     mov cx, dx
     mov dx, ax
     call file_skip_far
-    .after_row_offset:
+    .after_y_offset:
 
     mov ax, word [min_height]
     mov [i], word ax
@@ -64,7 +69,13 @@ bmp_draw:
 
         cmp [bmp.width], word 320
         jbe .after_cursor_x_offset
-        mov cx, word [cursor.x]
+        mov ax, word [cursor.x]
+        cmp [bmp.depth], word 8
+        je .dont_m3_x_begin
+        mov dx, word 3
+        mul dx
+        .dont_m3_x_begin:
+        mov cx, ax
         call file_skip
         .after_cursor_x_offset:
 
@@ -80,11 +91,29 @@ bmp_draw:
         .for_each_cell:
             dec word [j]
 
-            mov cx, word 1
-            mov dx, word char
-            call file_read
+            cmp [bmp.depth], word 8
+            jne .24_bit
 
-            mov al, byte [char]
+            .8_bit:
+                mov cx, word 1
+                mov dx, word char
+                call file_read
+                mov al, byte [char]
+                jmp .write_vga
+
+            .24_bit:
+                mov cx, word 3
+                mov dx, word bgr
+                call file_read
+                mov al, byte [bgr.r]
+                and al, 11100000b
+                and [bgr.g], byte 11100000b
+                shr [bgr.g], 3
+                or al, byte [bgr.g]
+                shr [bgr.b], 6
+                or al, byte [bgr.b]
+
+            .write_vga:
             mov [es:di], byte al
             inc di
 
@@ -97,9 +126,15 @@ bmp_draw:
 
         cmp [bmp.width], word 320
         jbe .after_col_offset
-        mov cx, word [bmp.width]
-        sub cx, word 320
-        sub cx, word [cursor.x]
+        mov ax, word [bmp.width]
+        sub ax, word 320
+        sub ax, word [cursor.x]
+        cmp [bmp.depth], word 8
+        je .dont_m3_x_end
+        mov dx, word 3
+        mul dx
+        .dont_m3_x_end:
+        mov cx, ax
         call file_skip
         .after_col_offset:
 
@@ -116,17 +151,26 @@ handle_keyboard:
     cmp ax, 0x1071      ; Q
     je exit
 
+    cmp [cursor.y_max], word 0
+    je .ignore_up_down
+
     cmp ax, 0x4800      ; UP
     je .cursor_up
 
     cmp ax, 0x5000      ; DOWN
     je .cursor_down
 
+    .ignore_up_down:
+    cmp [cursor.x_max], word 0
+    je .ignore_left_right
+
     cmp ax, 0x4d00      ; RIGHT
     je .cursor_right
 
     cmp ax, 0x4b00      ; LEFT
     je .cursor_left
+
+    .ignore_left_right:
 
     cmp ax, 0x0d3d      ; =
     je .zoom_in
@@ -142,34 +186,40 @@ handle_keyboard:
 
     .cursor_up:
         mov ax, word [cursor.y]
-        cmp ax, word 40
-        jb .invalid
-        sub [cursor.y], word 40
+        sub ax, 40
+        jns .cursor_up_free
+        mov ax, 0
+        .cursor_up_free:
+        mov [cursor.y], word ax
         ret
 
     .cursor_down:
         mov ax, word [cursor.y]
-        mov dx, word [bmp.height]
-        sub dx, word 240
-        cmp ax, dx
-        ja .invalid
-        add [cursor.y], word 40
-        ret
-
-    .cursor_left:
-        mov ax, word [cursor.x]
-        cmp ax, 40
-        jb .invalid
-        sub [cursor.x], word 40
+        add ax, 40
+        cmp ax, word [cursor.y_max]
+        jbe .cursor_down_free
+        mov ax, word [cursor.y_max]
+        .cursor_down_free:
+        mov [cursor.y], word ax
         ret
 
     .cursor_right:
         mov ax, word [cursor.x]
-        mov dx, word [bmp.width]
-        sub dx, word 360
-        cmp ax, dx
-        ja .invalid
-        add [cursor.x], word 40
+        add ax, 40
+        cmp ax, word [cursor.x_max]
+        jbe .cursor_right_free
+        mov ax, word [cursor.x_max]
+        .cursor_right_free:
+        mov [cursor.x], word ax
+        ret
+
+    .cursor_left:
+        mov ax, word [cursor.x]
+        sub ax, 40
+        jns .cursor_left_free
+        mov ax, 0
+        .cursor_left_free:
+        mov [cursor.x], word ax
         ret
 
     .zoom_in:
@@ -273,16 +323,27 @@ bmp_read:
     mov cx, word 2
     call file_skip
 
-    cmp [bmp.width], word 320
-    ja .after_min_width
     mov ax, word [bmp.width]
+    mov [min_width], word 320
+    cmp [bmp.width], word 320
+    jae .wider_than_320
     mov [min_width], word ax
+    jmp .after_min_width
+    .wider_than_320:
+    sub ax, word 320
+    mov [cursor.x_max], word ax
     .after_min_width:
 
-    cmp [bmp.height], word 200
-    ja .after_min_height
+
     mov ax, word [bmp.height]
+    mov [min_height], word 200
+    cmp [bmp.height], word 200
+    jae .higher_than_200
     mov [min_height], word ax
+    jmp .after_min_height
+    .higher_than_200:
+    sub ax, word 200
+    mov [cursor.y_max], word ax
     .after_min_height:
 
     mov cx, word 2
@@ -423,9 +484,11 @@ file.handle             dw 0
 
 cursor.x                dw 0
 cursor.y                dw 0
+cursor.x_max            dw 0
+cursor.y_max            dw 0
 
-min_width               dw 320
-min_height              dw 200
+min_width               rw 1
+min_height              rw 1
 
 i                       rw 1
 j                       rw 1
