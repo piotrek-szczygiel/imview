@@ -8,7 +8,7 @@ segment main
 start:
     mov ax, word stack1                     ; point stack segment address
     mov ss, ax
-    mov sp, word stack1_tail
+    mov sp, word stack_tail
 
     call argument_read
 
@@ -56,6 +56,7 @@ bmp_draw:
     mul dx
     .dont_m3_y_offset:
     mov dx, word [bmp.width]
+    add dx, word [bmp.padding]
     mul dx
     mov cx, dx
     mov dx, ax
@@ -124,11 +125,13 @@ bmp_draw:
         sub ax, word [min_width]
         add di, ax
 
+        mov ax, word [bmp.padding]
         cmp [bmp.width], word 320
-        jbe .after_col_offset
-        mov ax, word [bmp.width]
+        jbe .after_width_sub
+        add ax, word [bmp.width]
         sub ax, word 320
         sub ax, word [cursor.x]
+        .after_width_sub:
         cmp [bmp.depth], word 8
         je .dont_m3_x_end
         mov dx, word 3
@@ -136,7 +139,6 @@ bmp_draw:
         .dont_m3_x_end:
         mov cx, ax
         call file_skip
-        .after_col_offset:
 
         cmp [i], word 0
         ja .for_each_row
@@ -334,6 +336,13 @@ bmp_read:
     mov [cursor.x_max], word ax
     .after_min_width:
 
+    mov dx, word [bmp.width]
+    and dx, word 3
+    mov ax, word 4
+    sub ax, dx
+    and ax, word 3
+    mov [bmp.padding], word ax
+
 
     mov ax, word [bmp.height]
     mov [min_height], word 200
@@ -505,6 +514,7 @@ bmp.data_offset         rd 1
 bmp.width               rw 1
 bmp.height              rw 1
 bmp.depth               rw 1
+bmp.padding             rw 1
 
 row                     rb 5760
 
@@ -516,5 +526,5 @@ palette.padding         rb 1
 
 ; 128 bytes stack
 segment stack1
-stack1_head            rb 126
-stack1_tail            rb 2
+stack_head              rb 126
+stack_tail              rb 2
