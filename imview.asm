@@ -1,5 +1,5 @@
 ; vim: syntax=fasm
-; Simple calculator
+; Simple BMP image viewer for DOS
 ; Piotr Szczygieł - Assemblery 2019
 format MZ                                   ; DOS MZ executable
 entry main:start                            ; specify an application entry point
@@ -27,14 +27,15 @@ start:
         call handle_keyboard
         jmp .main_loop
 
+exit:
+    call mode_text
+    jmp dos_exit
+
 error:
     call mode_text
     call print
 
-exit:
-    call file_close
-    call mode_text
-
+dos_exit:
     mov al, byte 0
     mov ah, 0x4c
     int 0x21
@@ -225,10 +226,45 @@ handle_keyboard:
         ret
 
     .zoom_in:
+        mov [zoom], byte 0
+        ret
+
     .zoom_out:
+        mov [zoom], byte 1
 
     .invalid:
         ret
+
+calculate_dimensions:
+    mov ax, word [bmp.width]
+    mov [min_width], word 320
+    cmp [bmp.width], word 320
+    jae .wider_than_320
+    mov [min_width], word ax
+    jmp .after_min_width
+    .wider_than_320:
+    sub ax, word 320
+    mov [cursor.x_max], word ax
+    .after_min_width:
+
+    mov dx, word [bmp.width]
+    and dx, word 3
+    mov ax, word 4
+    sub ax, dx
+    and ax, word 3
+    mov [bmp.padding], word ax
+
+    mov ax, word [bmp.height]
+    mov [min_height], word 200
+    cmp [bmp.height], word 200
+    jae .higher_than_200
+    mov [min_height], word ax
+    jmp .after_min_height
+    .higher_than_200:
+    sub ax, word 200
+    mov [cursor.y_max], word ax
+    .after_min_height:
+    ret
 
 bmp_read_palette:
     mov dx, 0x03c8
@@ -322,43 +358,12 @@ bmp_read:
     mov dx, word bmp.height
     call file_read
 
-    mov cx, word 2
+    mov cx, word 4
     call file_skip
 
-    mov ax, word [bmp.width]
-    mov [min_width], word 320
-    cmp [bmp.width], word 320
-    jae .wider_than_320
-    mov [min_width], word ax
-    jmp .after_min_width
-    .wider_than_320:
-    sub ax, word 320
-    mov [cursor.x_max], word ax
-    .after_min_width:
+    call calculate_dimensions
 
-    mov dx, word [bmp.width]
-    and dx, word 3
-    mov ax, word 4
-    sub ax, dx
-    and ax, word 3
-    mov [bmp.padding], word ax
-
-
-    mov ax, word [bmp.height]
-    mov [min_height], word 200
-    cmp [bmp.height], word 200
-    jae .higher_than_200
-    mov [min_height], word ax
-    jmp .after_min_height
-    .higher_than_200:
-    sub ax, word 200
-    mov [cursor.y_max], word ax
-    .after_min_height:
-
-    mov cx, word 2
-    call file_skip
     mov cx, 2
-
     mov dx, word bmp.depth
     call file_read
 
@@ -401,7 +406,7 @@ argument_read:
     dec cl
     cld
     rep movsb
-
+    mov [es:di], byte 0
     ret
 
 ; Read from file
@@ -488,13 +493,16 @@ str_error_file_read     db "Error while reading from file!$"
 str_error_bmp_header    db "Invalid BMP header!$"
 str_error_bmp_depth     db "This program only handles 8bit and 24bit bitmaps!$"
 
-file.name               db 128 dup 0
-file.handle             dw 0
-
 cursor.x                dw 0
 cursor.y                dw 0
 cursor.x_max            dw 0
 cursor.y_max            dw 0
+
+zoom                    db 1
+zoom.skip_counter       db 0
+
+file.handle             rw 1
+file.name               rb 128
 
 min_width               rw 1
 min_height              rw 1
@@ -516,15 +524,12 @@ bmp.height              rw 1
 bmp.depth               rw 1
 bmp.padding             rw 1
 
-row                     rb 5760
-
 palette.quad:
 palette.b               rb 1
 palette.g               rb 1
 palette.r               rb 1
-palette.padding         rb 1
 
-; 128 bytes stack
+; 256 bytes stack
 segment stack1
-stack_head              rb 126
-stack_tail              rb 2
+stack_head              rw 127
+stack_tail              rw 1
