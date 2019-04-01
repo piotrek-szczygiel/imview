@@ -26,6 +26,7 @@ start:
         call calculate_dimensions
         call bmp_draw
         call handle_keyboard
+        call correct_cursor
         jmp .main_loop
 
 exit:
@@ -128,6 +129,32 @@ bmp_draw:
         ja .for_each_row
     ret
 
+correct_cursor:
+    cmp [zoom], byte 0
+    je .zoom_x_0
+    mov ax, word [cursor.max_x_zoom]
+    jmp .check_cursor_x
+    .zoom_x_0:
+    mov ax, word [cursor.max_x]
+    .check_cursor_x:
+    cmp [cursor.x], ax
+    jbe .cursor_x_ok
+    mov [cursor.x], ax
+    .cursor_x_ok:
+
+    cmp [zoom], byte 0
+    je .zoom_y_0
+    mov ax, word [cursor.max_y_zoom]
+    jmp .check_cursor_y
+    .zoom_y_0:
+    mov ax, word [cursor.max_y]
+    .check_cursor_y:
+    cmp [cursor.y], ax
+    jbe .cursor_y_ok
+    mov [cursor.y], ax
+    .cursor_y_ok:
+    ret
+
 handle_keyboard:
     xor ah, ah
     int 0x16
@@ -137,7 +164,7 @@ handle_keyboard:
     cmp ax, 0x1071      ; Q
     je exit
 
-    cmp [cursor.y_max], word 0
+    cmp [cursor.max_y], word 0
     je .ignore_up_down
 
     cmp ax, 0x4800      ; UP
@@ -145,9 +172,9 @@ handle_keyboard:
 
     cmp ax, 0x5000      ; DOWN
     je .cursor_down
-
     .ignore_up_down:
-    cmp [cursor.x_max], word 0
+
+    cmp [cursor.max_x], word 0
     je .ignore_left_right
 
     cmp ax, 0x4d00      ; RIGHT
@@ -155,7 +182,6 @@ handle_keyboard:
 
     cmp ax, 0x4b00      ; LEFT
     je .cursor_left
-
     .ignore_left_right:
 
     cmp ax, 0x0d3d      ; =
@@ -180,23 +206,12 @@ handle_keyboard:
         ret
 
     .cursor_down:
-        mov ax, word [cursor.y]
-        add ax, 40
-        cmp ax, word [cursor.y_max]
-        jbe .cursor_down_free
-        mov ax, word [cursor.y_max]
-        .cursor_down_free:
-        mov [cursor.y], word ax
+        add [cursor.y], word 40
         ret
 
+
     .cursor_right:
-        mov ax, word [cursor.x]
-        add ax, 40
-        cmp ax, word [cursor.x_max]
-        jbe .cursor_right_free
-        mov ax, word [cursor.x_max]
-        .cursor_right_free:
-        mov [cursor.x], word ax
+        add [cursor.x], word 40
         ret
 
     .cursor_left:
@@ -286,6 +301,7 @@ calculate_dimensions:
     .dont_m3_x_end:
     add ax, word [bmp.padding]
     mov [bmp.skip_column_after], word ax
+
     ret
 
 bmp_set_pos:
@@ -407,27 +423,34 @@ bmp_read:
     mov dx, word bmp.height
     call file_read
 
+    nop
     mov ax, word [bmp.width]
     mov [display.width], word 320
-    cmp [bmp.width], word 320
+    cmp ax, word 320
     jae .wider_than_320
     mov [display.width], word ax
-    jmp .after_display.width
+    jmp .after_display_width
     .wider_than_320:
     sub ax, word 320
-    mov [cursor.x_max], word ax
-    .after_display.width:
+    mov [cursor.max_x], word ax
+    sub ax, word 320
+    js .after_display_width
+    mov [cursor.max_x_zoom], word ax
+    .after_display_width:
 
     mov ax, word [bmp.height]
     mov [display.height], word 200
-    cmp [bmp.height], word 200
+    cmp ax, word 200
     jae .higher_than_200
     mov [display.height], word ax
-    jmp .after_display.height
+    jmp .after_display_height
     .higher_than_200:
     sub ax, word 200
-    mov [cursor.y_max], word ax
-    .after_display.height:
+    mov [cursor.max_y], word ax
+    sub ax, word 200
+    js .after_display_height
+    mov [cursor.max_y_zoom], word ax
+    .after_display_height:
 
     mov cx, word 4
     call file_skip
@@ -587,8 +610,10 @@ str_error_bmp_depth     db "This program only handles 8bit and 24bit bitmaps!$"
 
 cursor.x                dw 0
 cursor.y                dw 0
-cursor.x_max            dw 0
-cursor.y_max            dw 0
+cursor.max_x            dw 0
+cursor.max_y            dw 0
+cursor.max_x_zoom       dw 0
+cursor.max_y_zoom       dw 0
 
 zoom                    db 0
 zoom.skip_x             rb 1

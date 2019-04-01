@@ -1,6 +1,6 @@
 NAME := imview
 OUT  := $(NAME).exe
-IMG  := "images\t256_1~1.bmp"
+IMG  := images\t256_1~1.bmp
 
 $(OUT): $(NAME).asm
 	fasm $(NAME).asm
