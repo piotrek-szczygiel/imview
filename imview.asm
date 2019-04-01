@@ -129,6 +129,13 @@ bmp_draw:
         ja .for_each_row
     ret
 
+clear_vga:
+    mov di, 0
+    mov cx, word 32000
+    mov ax, word 0
+    rep stosw
+    ret
+
 correct_cursor:
     cmp [zoom], byte 0
     je .zoom_x_0
@@ -228,7 +235,18 @@ handle_keyboard:
         ret
 
     .zoom_out:
+        cmp [zoom], byte 1
+        je .invalid
+
         mov [zoom], byte 1
+        cmp [bmp.width], word 640
+        jae .zoom_wide_enough
+        call clear_vga
+        .zoom_wide_enough:
+        cmp [bmp.height], word 400
+        jae .zoom_tall_enough
+        call clear_vga
+        .zoom_tall_enough:
 
     .invalid:
         ret
