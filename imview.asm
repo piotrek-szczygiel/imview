@@ -58,17 +58,15 @@ bmp_draw:
         je .row_draw
         cmp [zoom.skip_y], byte 0
         je .row_draw
-        mov ah, byte [zoom]
-        cmp [zoom.skip_y], byte ah
-        jne .dont_clear_skip_y
-        mov [zoom.skip_y], byte 0
-        .dont_clear_skip_y:
         mov cx, [bmp.skip_whole_row]
         call file_skip
-        jmp .for_each_row_end
+        mov ah, byte [zoom]
+        cmp [zoom.skip_y], byte ah
+        jb .for_each_row_end
+        mov [zoom.skip_y], byte 0
+        jmp .for_each_row_end_dont_inc
 
         .row_draw:
-        inc byte [zoom.skip_y]
         mov cx, word [bmp.skip_column_before]
         call file_skip
 
@@ -115,17 +113,17 @@ bmp_draw:
             je .write_vga
             mov ah, byte [zoom]
             cmp [zoom.skip_x], byte ah
-            jne .dont_clear_skip_x
+            jb .for_each_cell_end
             mov [zoom.skip_x], byte 0
-            .dont_clear_skip_x:
-            jmp .for_each_cell_end
+            jmp .for_each_cell_end_dont_inc
 
             .write_vga:
-            inc byte [zoom.skip_x]
             mov [es:di], byte al
             inc di
 
             .for_each_cell_end:
+            inc byte [zoom.skip_x]
+            .for_each_cell_end_dont_inc:
             cmp [j], word 0
             ja .for_each_cell
 
@@ -133,6 +131,8 @@ bmp_draw:
         call file_skip
 
         .for_each_row_end:
+        inc byte [zoom.skip_y]
+        .for_each_row_end_dont_inc:
         cmp [i], word 0
         ja .for_each_row
     ret
@@ -147,6 +147,11 @@ clear_vga:
 correct_cursor:
     cmp [zoom], byte 0
     je .zoom_x_0
+    cmp [zoom], byte 1
+    je .zoom_x_1
+    mov ax, word [cursor.max_x_zoom2]
+    jmp .check_cursor_x
+    .zoom_x_1:
     mov ax, word [cursor.max_x_zoom1]
     jmp .check_cursor_x
     .zoom_x_0:
@@ -159,6 +164,11 @@ correct_cursor:
 
     cmp [zoom], byte 0
     je .zoom_y_0
+    cmp [zoom], byte 1
+    je .zoom_y_1
+    mov ax, word [cursor.max_y_zoom2]
+    jmp .check_cursor_y
+    .zoom_y_1:
     mov ax, word [cursor.max_y_zoom1]
     jmp .check_cursor_y
     .zoom_y_0:
@@ -213,49 +223,76 @@ handle_keyboard:
 
     .cursor_up:
         mov ax, word [cursor.y]
-        sub ax, 40
+        sub ax, word [cursor.jump]
         jns .cursor_up_free
         mov ax, 0
         .cursor_up_free:
         mov [cursor.y], word ax
         ret
 
-    .cursor_down:
-        add [cursor.y], word 40
-        ret
-
-
-    .cursor_right:
-        add [cursor.x], word 40
-        ret
-
     .cursor_left:
         mov ax, word [cursor.x]
-        sub ax, 40
+        sub ax, word [cursor.jump]
         jns .cursor_left_free
         mov ax, 0
         .cursor_left_free:
         mov [cursor.x], word ax
         ret
 
+    .cursor_down:
+        mov ax, word [cursor.jump]
+        add [cursor.y], ax
+        ret
+
+
+    .cursor_right:
+        mov ax, word [cursor.jump]
+        add [cursor.x], ax
+        ret
+
     .zoom_in:
+        cmp [zoom], byte 3
+        je .zoom_in_1
+        cmp [zoom], byte 1
+        je .zoom_in_0
+        ret
+        .zoom_in_1:
+        mov [zoom], byte 1
+        mov [cursor.jump], word 200
+        ret
+        .zoom_in_0:
         mov [zoom], byte 0
+        mov [cursor.jump], word 100
         ret
 
     .zoom_out:
+        cmp [zoom], byte 0
+        je .zoom_out_1
         cmp [zoom], byte 1
-        je .invalid
+        je .zoom_out_3
+        ret
 
+        .zoom_out_1:
         mov [zoom], byte 1
-        cmp [bmp.width], word 640
+        mov [cursor.jump], word 200
+        mov ax, 320 * 2
+        mov dx, 200 * 2
+        jmp .zoom_clear
+        .zoom_out_3:
+        mov [zoom], byte 3
+        mov [cursor.jump], word 400
+        mov ax, 320 * 4
+        mov dx, 200 * 4
+        .zoom_clear:
+        cmp [bmp.width], ax
         jae .zoom_wide_enough
         call clear_vga
+        ret
         .zoom_wide_enough:
-        cmp [bmp.height], word 400
+        cmp [bmp.height], dx
         jae .zoom_tall_enough
         call clear_vga
         .zoom_tall_enough:
-
     .invalid:
         ret
 
@@ -267,6 +304,7 @@ calculate_dimensions:
     add [read.width], ax
     cmp [zoom], byte 1
     je .after_zoom_x
+    add [read.width], ax
     add [read.width], ax
     .after_zoom_x:
     mov ax, [bmp.width]
@@ -283,6 +321,7 @@ calculate_dimensions:
     cmp [zoom], byte 1
     je .after_zoom_y
     add [read.height], ax
+    add [read.height], ax
     .after_zoom_y:
     mov ax, [bmp.height]
     cmp [read.height], ax
@@ -296,6 +335,10 @@ calculate_dimensions:
     je .after_zoom_height
     mov ax, word [bmp.height]
     shr ax, 1
+    cmp [zoom], byte 1
+    je .zoom_1
+    shr ax, 1
+    .zoom_1:
     cmp ax, word 200
     jae .after_zoom_height
     mov [display.zoom_height], word ax
@@ -342,6 +385,16 @@ bmp_set_pos:
     sub ax, dx
     cmp [zoom], byte 0
     je .after_cursor_zoom
+    cmp [zoom], byte 1
+    je .zoom_1
+    mov dx, word 800
+    add dx, word [cursor.y]
+    cmp [bmp.height], word dx
+    jbe .after_y_offset
+    mov ax, word [bmp.height]
+    sub ax ,dx
+    jmp .after_cursor_zoom
+    .zoom_1:
     mov dx, word 400
     add dx, word [cursor.y]
     cmp [bmp.height], word dx
@@ -462,6 +515,9 @@ bmp_read:
     sub ax, word 320
     js .after_display_width
     mov [cursor.max_x_zoom1], word ax
+    sub ax, word 640
+    js .after_display_width
+    mov [cursor.max_x_zoom2], word ax
     .after_display_width:
 
     mov ax, word [bmp.height]
@@ -476,6 +532,9 @@ bmp_read:
     sub ax, word 200
     js .after_display_height
     mov [cursor.max_y_zoom1], word ax
+    sub ax, word 400
+    js .after_display_height
+    mov [cursor.max_y_zoom2], word ax
     .after_display_height:
 
     mov cx, word 4
@@ -636,10 +695,13 @@ str_error_bmp_depth     db "This program only handles 8bit and 24bit bitmaps!$"
 
 cursor.x                dw 0
 cursor.y                dw 0
+cursor.jump             dw 100
 cursor.max_x            dw 0
 cursor.max_y            dw 0
 cursor.max_x_zoom1      dw 0
 cursor.max_y_zoom1      dw 0
+cursor.max_x_zoom2      dw 0
+cursor.max_y_zoom2      dw 0
 
 zoom                    db 0
 zoom.skip_x             rb 1
