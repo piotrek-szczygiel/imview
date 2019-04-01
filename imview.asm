@@ -23,6 +23,7 @@ start:
     call bmp_read
 
     .main_loop:
+        call calculate_dimensions
         call bmp_draw
         call handle_keyboard
         jmp .main_loop
@@ -41,54 +42,41 @@ dos_exit:
     int 0x21
 
 bmp_draw:
-    mov cx, word [bmp.data_offset]
-    call file_set_pos
-
     mov di, word 0      ; offset in VGA memory
+    call bmp_set_pos
 
-    mov ax, word [bmp.height]
-    cmp ax, word 200
-    jbe .after_y_offset
-    sub ax, word 200
-    sub ax, word [cursor.y]
-    cmp [bmp.depth], word 8
-    je .dont_m3_y_offset
-    mov dx, word 3
-    mul dx
-    .dont_m3_y_offset:
-    mov dx, word [bmp.width]
-    add dx, word [bmp.padding]
-    mul dx
-    mov cx, dx
-    mov dx, ax
-    call file_skip_far
-    .after_y_offset:
-
-    mov ax, word [min_height]
+    mov [zoom.skip_y], byte 0
+    mov ax, word [read.height]
     mov [i], word ax
+    mov ax, word [display.height]
+    mov [k], word ax
     .for_each_row:
         dec word [i]
 
-        cmp [bmp.width], word 320
-        jbe .after_cursor_x_offset
-        mov ax, word [cursor.x]
-        cmp [bmp.depth], word 8
-        je .dont_m3_x_begin
-        mov dx, word 3
-        mul dx
-        .dont_m3_x_begin:
-        mov cx, ax
+        cmp [zoom], byte 0
+        je .row_draw
+        cmp [zoom.skip_y], byte 0
+        je .row_draw
+        mov [zoom.skip_y], byte 0
+        mov cx, [bmp.skip_whole_row]
         call file_skip
-        .after_cursor_x_offset:
+        jmp .for_each_row_end
 
-        mov ax, word [i]
+        .row_draw:
+        mov [zoom.skip_y], byte 1
+        mov cx, word [bmp.skip_column_before]
+        call file_skip
+
+        dec word [k]
+        mov ax, word [k]
         mov dx, ax
         shl ax, 8
         shl dx, 6
         add ax, dx
         mov di, ax
 
-        mov ax, word [min_width]
+        mov [zoom.skip_x], byte 0
+        mov ax, word [read.width]
         mov [j], word ax
         .for_each_cell:
             dec word [j]
@@ -101,7 +89,7 @@ bmp_draw:
                 mov dx, word char
                 call file_read
                 mov al, byte [char]
-                jmp .write_vga
+                jmp .handle_zoom
 
             .24_bit:
                 mov cx, word 3
@@ -115,32 +103,27 @@ bmp_draw:
                 shr [bgr.b], 6
                 or al, byte [bgr.b]
 
+            .handle_zoom:
+            cmp [zoom], byte 0
+            je .write_vga
+            cmp [zoom.skip_x], byte 0
+            je .write_vga
+            mov [zoom.skip_x], byte 0
+            jmp .for_each_cell_end
+
             .write_vga:
+            mov [zoom.skip_x], byte 1
             mov [es:di], byte al
             inc di
 
+            .for_each_cell_end:
             cmp [j], word 0
             ja .for_each_cell
 
-        mov ax, word 320
-        sub ax, word [min_width]
-        add di, ax
-
-        mov ax, word [bmp.padding]
-        cmp [bmp.width], word 320
-        jbe .after_width_sub
-        add ax, word [bmp.width]
-        sub ax, word 320
-        sub ax, word [cursor.x]
-        .after_width_sub:
-        cmp [bmp.depth], word 8
-        je .dont_m3_x_end
-        mov dx, word 3
-        mul dx
-        .dont_m3_x_end:
-        mov cx, ax
+        mov cx, word [bmp.skip_column_after]
         call file_skip
 
+        .for_each_row_end:
         cmp [i], word 0
         ja .for_each_row
     ret
@@ -236,34 +219,85 @@ handle_keyboard:
         ret
 
 calculate_dimensions:
-    mov ax, word [bmp.width]
-    mov [min_width], word 320
-    cmp [bmp.width], word 320
-    jae .wider_than_320
-    mov [min_width], word ax
-    jmp .after_min_width
-    .wider_than_320:
-    sub ax, word 320
-    mov [cursor.x_max], word ax
-    .after_min_width:
+    mov ax, word [display.width]
+    mov [read.width], ax
+    cmp [zoom], byte 0
+    je .after_zoom_x
+    add [read.width], ax
+    cmp [zoom], byte 1
+    je .after_zoom_x
+    add [read.width], ax
+    .after_zoom_x:
+    mov ax, [bmp.width]
+    cmp [read.width], ax
+    jbe .after_read_width
+    mov [read.width], ax
+    .after_read_width:
 
-    mov dx, word [bmp.width]
-    and dx, word 3
-    mov ax, word 4
-    sub ax, dx
-    and ax, word 3
-    mov [bmp.padding], word ax
+    mov ax, word [display.height]
+    mov [read.height], ax
+    cmp [zoom], byte 0
+    je .after_zoom_y
+    add [read.height], ax
+    cmp [zoom], byte 1
+    je .after_zoom_y
+    add [read.height], ax
+    .after_zoom_y:
+    mov ax, [bmp.height]
+    cmp [read.height], ax
+    jbe .after_read_height
+    mov [read.height], ax
+    .after_read_height:
+
+    mov [bmp.skip_column_before], word 0
+    cmp [bmp.width], word 320
+    jbe .after_cursor_x_offset
+    mov ax, word [cursor.x]
+    cmp [bmp.depth], word 8
+    je .dont_m3_x_begin
+    mov dx, word 3
+    mul dx
+    .dont_m3_x_begin:
+    mov [bmp.skip_column_before], word ax
+    .after_cursor_x_offset:
+
+    mov ax, word 0
+    cmp [bmp.width], word 320
+    jbe .after_width_sub
+    add ax, word [bmp.width]
+    sub ax, word [cursor.x]
+    sub ax, word [read.width]
+    .after_width_sub:
+    cmp [bmp.depth], word 8
+    je .dont_m3_x_end
+    mov dx, word 3
+    mul dx
+    .dont_m3_x_end:
+    add ax, word [bmp.padding]
+    mov [bmp.skip_column_after], word ax
+    ret
+
+bmp_set_pos:
+    mov cx, word [bmp.data_offset]
+    call file_set_pos
 
     mov ax, word [bmp.height]
-    mov [min_height], word 200
-    cmp [bmp.height], word 200
-    jae .higher_than_200
-    mov [min_height], word ax
-    jmp .after_min_height
-    .higher_than_200:
+    cmp ax, word 200
+    jbe .after_y_offset
     sub ax, word 200
-    mov [cursor.y_max], word ax
-    .after_min_height:
+    sub ax, word [cursor.y]
+    cmp [bmp.depth], word 8
+    je .dont_m3_y_offset
+    mov dx, word 3
+    mul dx
+    .dont_m3_y_offset:
+    mov dx, word [bmp.width]
+    add dx, word [bmp.padding]
+    mul dx
+    mov cx, dx
+    mov dx, ax
+    call file_skip_far
+    .after_y_offset:
     ret
 
 bmp_read_palette:
@@ -358,14 +392,51 @@ bmp_read:
     mov dx, word bmp.height
     call file_read
 
+    mov ax, word [bmp.width]
+    mov [display.width], word 320
+    cmp [bmp.width], word 320
+    jae .wider_than_320
+    mov [display.width], word ax
+    jmp .after_display.width
+    .wider_than_320:
+    sub ax, word 320
+    mov [cursor.x_max], word ax
+    .after_display.width:
+
+    mov dx, word [bmp.width]
+    and dx, word 3
+    mov ax, word 4
+    sub ax, dx
+    mov [bmp.padding], word ax
+
+    mov ax, word [bmp.height]
+    mov [display.height], word 200
+    cmp [bmp.height], word 200
+    jae .higher_than_200
+    mov [display.height], word ax
+    jmp .after_display.height
+    .higher_than_200:
+    sub ax, word 200
+    mov [cursor.y_max], word ax
+    .after_display.height:
+
     mov cx, word 4
     call file_skip
-
-    call calculate_dimensions
 
     mov cx, 2
     mov dx, word bmp.depth
     call file_read
+
+    mov ax, word [bmp.width]
+    mov [bmp.skip_whole_row], word ax
+    cmp [bmp.depth], word 8
+    je .dont_m3_skip_whole_row
+    mov dx, word 3
+    mul dx
+    mov [bmp.skip_whole_row], word ax
+    .dont_m3_skip_whole_row:
+    mov ax, word [bmp.padding]
+    add [bmp.skip_whole_row], ax
 
     cmp [bmp.depth], word 8
     je .8_bit
@@ -498,17 +569,22 @@ cursor.y                dw 0
 cursor.x_max            dw 0
 cursor.y_max            dw 0
 
-zoom                    db 1
-zoom.skip_counter       db 0
+zoom                    db 0
+zoom.skip_x             rb 1
+zoom.skip_y             rb 1
 
 file.handle             rw 1
 file.name               rb 128
 
-min_width               rw 1
-min_height              rw 1
+display.width           rw 1
+display.height          rw 1
+
+read.width              rw 1
+read.height             rw 1
 
 i                       rw 1
 j                       rw 1
+k                       rw 1
 
 char                    rb 1
 
@@ -523,6 +599,10 @@ bmp.width               rw 1
 bmp.height              rw 1
 bmp.depth               rw 1
 bmp.padding             rw 1
+
+bmp.skip_whole_row      rw 1
+bmp.skip_column_before  rw 1
+bmp.skip_column_after   rw 1
 
 palette.quad:
 palette.b               rb 1
