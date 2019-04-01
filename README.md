@@ -1,6 +1,6 @@
 # Usage
 
-`IMVIEW.EXE image`
+`C:\>IMVIEW.EXE image`
 
 # Screenshot
 
