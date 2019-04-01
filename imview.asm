@@ -48,7 +48,7 @@ bmp_draw:
     mov [zoom.skip_y], byte 0
     mov ax, word [read.height]
     mov [i], word ax
-    mov ax, word [display.height]
+    mov ax, word [display.zoom_height]
     mov [k], word ax
     .for_each_row:
         dec word [i]
@@ -249,6 +249,17 @@ calculate_dimensions:
     mov [read.height], ax
     .after_read_height:
 
+    mov ax, word [display.height]
+    mov [display.zoom_height], ax
+    cmp [zoom], byte 0
+    je .after_zoom_height
+    mov ax, word [bmp.height]
+    shr ax, 1
+    cmp ax, word 200
+    jae .after_zoom_height
+    mov [display.zoom_height], word ax
+    .after_zoom_height:
+
     mov [bmp.skip_column_before], word 0
     cmp [bmp.width], word 320
     jbe .after_cursor_x_offset
@@ -281,11 +292,21 @@ bmp_set_pos:
     mov cx, word [bmp.data_offset]
     call file_set_pos
 
+    mov dx, word 200
+    add dx, word [cursor.y]
     mov ax, word [bmp.height]
-    cmp ax, word 200
+    cmp ax, dx
     jbe .after_y_offset
-    sub ax, word 200
-    sub ax, word [cursor.y]
+    sub ax, dx
+    cmp [zoom], byte 0
+    je .after_cursor_zoom
+    mov dx, word 400
+    add dx, word [cursor.y]
+    cmp [bmp.height], word dx
+    jbe .after_y_offset
+    mov ax, word [bmp.height]
+    sub ax, dx
+    .after_cursor_zoom:
     mov dx, word [bmp.skip_whole_row]
     mul dx
     mov cx, dx
@@ -578,6 +599,7 @@ file.name               rb 128
 
 display.width           rw 1
 display.height          rw 1
+display.zoom_height     rw 1
 
 read.width              rw 1
 read.height             rw 1
