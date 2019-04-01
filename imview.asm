@@ -56,18 +56,18 @@ bmp_draw:
 
     mov [zoom.skip_y], byte 0
     mov ax, word [read.height]
-    mov [i], word ax
+    mov [i], word ax    ; row read counter
     mov ax, word [display.zoom_height]
-    mov [k], word ax
+    mov [k], word ax    ; row display counter
     .for_each_row:
         dec word [i]
 
-        cmp [zoom], byte 0
+        cmp [zoom], byte 0              ; draw row
         je .row_draw
         cmp [zoom.skip_y], byte 0
         je .row_draw
         mov cx, [bmp.skip_whole_row]
-        call file_skip
+        call file_skip                  ; or skip it when zoomed out
         mov ah, byte [zoom]
         cmp [zoom.skip_y], byte ah
         jb .for_each_row_end
@@ -78,17 +78,17 @@ bmp_draw:
         mov cx, word [bmp.skip_column_before]
         call file_skip
 
-        dec word [k]
+        dec word [k]        ; position VGA pointer on current row
         mov ax, word [k]
         mov dx, ax
-        shl ax, 8
-        shl dx, 6
-        add ax, dx
+        shl ax, 8           ;   k << 8 + k << 6
+        shl dx, 6           ; = 256 * k + 64 * k
+        add ax, dx          ; = 320 * k
         mov di, ax
 
         mov [zoom.skip_x], byte 0
         mov ax, word [read.width]
-        mov [j], word ax
+        mov [j], word ax    ; cell read counter
         .for_each_cell:
             dec word [j]
 
@@ -98,16 +98,16 @@ bmp_draw:
             .8_bit:
                 mov cx, word 1
                 mov dx, word c
-                call file_read
-                mov al, byte [c]
+                call file_read      ; read 1 byte and store it
+                mov al, byte [c]    ; in the AL register
                 jmp .handle_zoom
 
             .24_bit:
                 mov cx, word 3
-                mov dx, word bgr
+                mov dx, word bgr            ; read 3 bytes into bgr structure
                 call file_read
-                mov al, byte [bgr.r]
-                and al, 11100000b
+                mov al, byte [bgr.r]        ; convert bgr into 332 format
+                and al, 11100000b           ; and store it in the AL register
                 and [bgr.g], byte 11100000b
                 shr [bgr.g], 3
                 or al, byte [bgr.g]
@@ -116,18 +116,18 @@ bmp_draw:
 
             .handle_zoom:
             cmp [zoom], byte 0
-            je .write_vga
+            je .write_vga                   ; draw current cell
             cmp [zoom.skip_x], byte 0
             je .write_vga
             mov ah, byte [zoom]
             cmp [zoom.skip_x], byte ah
-            jb .for_each_cell_end
+            jb .for_each_cell_end           ; or skip it when zoomed out
             mov [zoom.skip_x], byte 0
             jmp .for_each_cell_end_dont_inc
 
             .write_vga:
-            mov [es:di], byte al
-            inc di
+            mov [es:di], byte al            ; draw pixel on screen
+            inc di                          ; move to next cell in VGA buffer
 
             .for_each_cell_end:
             inc byte [zoom.skip_x]
@@ -145,52 +145,7 @@ bmp_draw:
         ja .for_each_row
     ret
 
-; Clear the VGA buffer with black color
-clear_vga:
-    mov di, 0
-    mov cx, word 32000
-    mov ax, word 0
-    rep stosw
-    ret
-
-; Correct the cursor position if it went out of bounds
-correct_cursor:
-    cmp [zoom], byte 0
-    je .zoom_x_0
-    cmp [zoom], byte 1
-    je .zoom_x_1
-    mov ax, word [cursor.max_x_zoom2]
-    jmp .check_cursor_x
-    .zoom_x_1:
-    mov ax, word [cursor.max_x_zoom1]
-    jmp .check_cursor_x
-    .zoom_x_0:
-    mov ax, word [cursor.max_x]
-    .check_cursor_x:
-    cmp [cursor.x], ax
-    jbe .cursor_x_ok
-    mov [cursor.x], ax
-    .cursor_x_ok:
-
-    cmp [zoom], byte 0
-    je .zoom_y_0
-    cmp [zoom], byte 1
-    je .zoom_y_1
-    mov ax, word [cursor.max_y_zoom2]
-    jmp .check_cursor_y
-    .zoom_y_1:
-    mov ax, word [cursor.max_y_zoom1]
-    jmp .check_cursor_y
-    .zoom_y_0:
-    mov ax, word [cursor.max_y]
-    .check_cursor_y:
-    cmp [cursor.y], ax
-    jbe .cursor_y_ok
-    mov [cursor.y], ax
-    .cursor_y_ok:
-    ret
-
-; Handle the keyboard input
+; Handle keyboard input
 handle_keyboard:
     xor ah, ah
     int 0x16
@@ -200,37 +155,29 @@ handle_keyboard:
     cmp ax, 0x1071      ; Q
     je exit
 
-    cmp [cursor.max_y], word 0
-    je .ignore_up_down
-
     cmp ax, 0x4800      ; UP
     je .cursor_up
 
     cmp ax, 0x5000      ; DOWN
     je .cursor_down
-    .ignore_up_down:
-
-    cmp [cursor.max_x], word 0
-    je .ignore_left_right
 
     cmp ax, 0x4d00      ; RIGHT
     je .cursor_right
 
     cmp ax, 0x4b00      ; LEFT
     je .cursor_left
-    .ignore_left_right:
 
     cmp ax, 0x0d3d      ; =
-    je .zoom_in
+    je .zoom_in         ; or
     cmp ax, 0x0d2b      ; +
     je .zoom_in
 
     cmp ax, 0x0c2d      ; -
-    je .zoom_out
+    je .zoom_out        ; or
     cmp ax, 0x0c5f      ; _
     je .zoom_out
 
-    je .invalid
+    je .invalid         ; unknown key
 
     .cursor_up:
         mov ax, word [cursor.y]
@@ -311,6 +258,43 @@ handle_keyboard:
     .invalid:
         ret
 
+; Correct the cursor position if it went out of bounds
+correct_cursor:
+    cmp [zoom], byte 0
+    je .zoom_x_0
+    cmp [zoom], byte 1
+    je .zoom_x_1
+    mov ax, word [cursor.max_x_zoom2]
+    jmp .check_cursor_x
+    .zoom_x_1:
+    mov ax, word [cursor.max_x_zoom1]
+    jmp .check_cursor_x
+    .zoom_x_0:
+    mov ax, word [cursor.max_x]
+    .check_cursor_x:
+    cmp [cursor.x], ax
+    jbe .cursor_x_ok
+    mov [cursor.x], ax
+    .cursor_x_ok:
+
+    cmp [zoom], byte 0
+    je .zoom_y_0
+    cmp [zoom], byte 1
+    je .zoom_y_1
+    mov ax, word [cursor.max_y_zoom2]
+    jmp .check_cursor_y
+    .zoom_y_1:
+    mov ax, word [cursor.max_y_zoom1]
+    jmp .check_cursor_y
+    .zoom_y_0:
+    mov ax, word [cursor.max_y]
+    .check_cursor_y:
+    cmp [cursor.y], ax
+    jbe .cursor_y_ok
+    mov [cursor.y], ax
+    .cursor_y_ok:
+    ret
+
 ; Calculate some needed variables depending on zoom, color depth, etc.
 calculate_dimensions:
     mov ax, word 320
@@ -345,7 +329,13 @@ calculate_dimensions:
     mov [read.height], ax
     .after_read_height:
 
-    mov ax, word [display.height]
+    mov ax, word [bmp.height]
+    cmp ax, word 200
+    jae .higher_than_200
+    jmp .after_height_trim
+    .higher_than_200:
+    mov ax, word 200
+    .after_height_trim:
     mov [display.zoom_height], ax
     cmp [zoom], byte 0
     je .after_zoom_height
@@ -429,20 +419,22 @@ bmp_set_pos:
 
 ; Read and apply palette from 256-color bitmap
 bmp_read_palette:
-    mov dx, 0x03c8
-    mov al, 0
+    mov dx, 0x03c8              ; tell dos that you will now pass
+    mov al, 0                   ; all 256 elements of color palette
     out dx, al
 
     mov [i], word 256
     .loop:
-        mov cx, word 4
-        mov dx, word palette.quad
+        mov cx, word 3          ; read 3 bytes into bgr structure
+        mov dx, word bgr
         call file_read
+        mov cx, word 1          ; skip 1 padding byte
+        call file_skip
 
         mov dx, 0x03c9
         mov al, byte [bgr.r]
-        shr al, 2
-        out dx, al
+        shr al, 2               ; shift every byte by 2 left
+        out dx, al              ; output it to 0x03c9 port
         mov al, byte [bgr.g]
         shr al, 2
         out dx, al
@@ -457,34 +449,34 @@ bmp_read_palette:
 
 ; Generate 332 palette to be able to display 24bit bitmaps
 generate_332_palette:
-    mov dx, 0x03c8
-    mov al, 0
+    mov dx, 0x03c8          ; tell dos that you will now pass
+    mov al, 0               ; all 256 elements of color palette
     out dx, al
 
     mov dx, 0x03c9
-    mov cl, 0
+    mov cl, 0               ; index counter
     .332_palette:
-        mov al, cl
+        mov al, cl          ; get red value from index
         and al, 11100000b
         shr al, 5
-        mov bl, 9
-        mul bl
+        mov bl, 9           ; multiply it by 9 to make it
+        mul bl              ; in [0, 63] range
         out dx, al
 
-        mov al, cl
+        mov al, cl          ; get green value from index
         and al, 00011100b
         shr al, 2
-        mov bl, 9
+        mov bl, 9           ; 111b * 9 = 255 >> 2
         mul byte bl
         out dx, al
 
-        mov al, cl
+        mov al, cl          ; get blue value from index
         and al, 00000011b
-        mov bl, 21
+        mov bl, 21          ; 3 * 21 = 255 >> 2
         mul byte bl
         out dx, al
 
-        inc cl
+        inc cl              ; increase index
         cmp cl, 0
         jne .332_palette
     ret
@@ -496,7 +488,7 @@ bmp_read:
     call file_read
 
     mov dx, word str_error_bmp_header
-    cmp [bmp.header], byte "B"
+    cmp [bmp.header], byte "B"          ; first two bytes should be "BM"
     jne error
     cmp [bmp.header + 1], byte "M"
     jne error
@@ -522,7 +514,7 @@ bmp_read:
     mov dx, word bmp.height
     call file_read
 
-    mov ax, word [bmp.width]
+    mov ax, word [bmp.width]            ; calculate cursor x boundaries
     cmp ax, word 320
     jb .after_cursor_max_x
     sub ax, word 320
@@ -535,7 +527,7 @@ bmp_read:
     mov [cursor.max_x_zoom2], word ax
     .after_cursor_max_x:
 
-    mov ax, word [bmp.height]
+    mov ax, word [bmp.height]           ; calculate cursor y boundaries
     cmp ax, word 200
     jb .after_cursor_max_y
     sub ax, word 200
@@ -544,7 +536,7 @@ bmp_read:
     js .after_cursor_max_y
     mov [cursor.max_y_zoom1], word ax
     sub ax, word 400
-    js .after_cursor_max_Y
+    js .after_cursor_max_y
     mov [cursor.max_y_zoom2], word ax
     .after_cursor_max_y:
 
@@ -561,8 +553,8 @@ bmp_read:
     mov dx, word 3
     mul dx
     .dont_m3_padding:
-    and ax, word 3
-    mov dx, word 4
+    and ax, word 3                  ; calculate end of row byte padding for
+    mov dx, word 4                  ; images which width is not divisible by 4
     sub dx, ax
     and dx, word 3
     mov [bmp.padding], word dx
@@ -576,7 +568,7 @@ bmp_read:
     mov [bmp.skip_whole_row], word ax
     .dont_m3_skip_whole_row:
     mov ax, word [bmp.padding]
-    add [bmp.skip_whole_row], ax
+    add [bmp.skip_whole_row], ax    ; how many bytes are in a single row
 
     cmp [bmp.depth], word 8
     je .8_bit
@@ -609,15 +601,15 @@ argument_read:
     mov ax, word text1
     mov es, ax
 
-    mov si, 0x82        ; offset to first letter of arguments
+    mov si, 0x82            ; offset to beginning of argument
     mov di, file.name
 
     xor ch, ch
-    mov cl, byte [0x80]
-    dec cl
+    mov cl, byte [0x80]     ; argument length
+    dec cl                  ; ignore first byte which is a space
     cld
     rep movsb
-    mov [es:di], byte 0
+    mov [es:di], byte 0     ; add null delimiter at the end of filename
     ret
 
 ; Read from file
@@ -679,6 +671,14 @@ file_close:
     int 0x21
     mov dx, word str_error_file_close
     jc error
+    ret
+
+; Clear the VGA buffer with black color
+clear_vga:
+    mov di, 0
+    mov cx, word 32000      ; place 0x0000 * 32000 times in VGA buffer
+    mov ax, word 0          ; to clear the whole screen in black
+    rep stosw
     ret
 
 ; Switch video mode to VGA 320x200, 256 colors
