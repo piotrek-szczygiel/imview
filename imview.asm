@@ -58,13 +58,17 @@ bmp_draw:
         je .row_draw
         cmp [zoom.skip_y], byte 0
         je .row_draw
+        mov ah, byte [zoom]
+        cmp [zoom.skip_y], byte ah
+        jne .dont_clear_skip_y
         mov [zoom.skip_y], byte 0
+        .dont_clear_skip_y:
         mov cx, [bmp.skip_whole_row]
         call file_skip
         jmp .for_each_row_end
 
         .row_draw:
-        mov [zoom.skip_y], byte 1
+        inc byte [zoom.skip_y]
         mov cx, word [bmp.skip_column_before]
         call file_skip
 
@@ -109,11 +113,15 @@ bmp_draw:
             je .write_vga
             cmp [zoom.skip_x], byte 0
             je .write_vga
+            mov ah, byte [zoom]
+            cmp [zoom.skip_x], byte ah
+            jne .dont_clear_skip_x
             mov [zoom.skip_x], byte 0
+            .dont_clear_skip_x:
             jmp .for_each_cell_end
 
             .write_vga:
-            mov [zoom.skip_x], byte 1
+            inc byte [zoom.skip_x]
             mov [es:di], byte al
             inc di
 
@@ -139,7 +147,7 @@ clear_vga:
 correct_cursor:
     cmp [zoom], byte 0
     je .zoom_x_0
-    mov ax, word [cursor.max_x_zoom]
+    mov ax, word [cursor.max_x_zoom1]
     jmp .check_cursor_x
     .zoom_x_0:
     mov ax, word [cursor.max_x]
@@ -151,7 +159,7 @@ correct_cursor:
 
     cmp [zoom], byte 0
     je .zoom_y_0
-    mov ax, word [cursor.max_y_zoom]
+    mov ax, word [cursor.max_y_zoom1]
     jmp .check_cursor_y
     .zoom_y_0:
     mov ax, word [cursor.max_y]
@@ -453,7 +461,7 @@ bmp_read:
     mov [cursor.max_x], word ax
     sub ax, word 320
     js .after_display_width
-    mov [cursor.max_x_zoom], word ax
+    mov [cursor.max_x_zoom1], word ax
     .after_display_width:
 
     mov ax, word [bmp.height]
@@ -467,7 +475,7 @@ bmp_read:
     mov [cursor.max_y], word ax
     sub ax, word 200
     js .after_display_height
-    mov [cursor.max_y_zoom], word ax
+    mov [cursor.max_y_zoom1], word ax
     .after_display_height:
 
     mov cx, word 4
@@ -630,8 +638,8 @@ cursor.x                dw 0
 cursor.y                dw 0
 cursor.max_x            dw 0
 cursor.max_y            dw 0
-cursor.max_x_zoom       dw 0
-cursor.max_y_zoom       dw 0
+cursor.max_x_zoom1      dw 0
+cursor.max_y_zoom1      dw 0
 
 zoom                    db 0
 zoom.skip_x             rb 1
