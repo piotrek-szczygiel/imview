@@ -286,13 +286,7 @@ bmp_set_pos:
     jbe .after_y_offset
     sub ax, word 200
     sub ax, word [cursor.y]
-    cmp [bmp.depth], word 8
-    je .dont_m3_y_offset
-    mov dx, word 3
-    mul dx
-    .dont_m3_y_offset:
-    mov dx, word [bmp.width]
-    add dx, word [bmp.padding]
+    mov dx, word [bmp.skip_whole_row]
     mul dx
     mov cx, dx
     mov dx, ax
@@ -403,12 +397,6 @@ bmp_read:
     mov [cursor.x_max], word ax
     .after_display.width:
 
-    mov dx, word [bmp.width]
-    and dx, word 3
-    mov ax, word 4
-    sub ax, dx
-    mov [bmp.padding], word ax
-
     mov ax, word [bmp.height]
     mov [display.height], word 200
     cmp [bmp.height], word 200
@@ -426,6 +414,18 @@ bmp_read:
     mov cx, 2
     mov dx, word bmp.depth
     call file_read
+
+    mov ax, word [bmp.width]
+    cmp [bmp.depth], word 8
+    je .dont_m3_padding
+    mov dx, word 3
+    mul dx
+    .dont_m3_padding:
+    and ax, word 3
+    mov dx, word 4
+    sub dx, ax
+    and dx, word 3
+    mov [bmp.padding], word dx
 
     mov ax, word [bmp.width]
     mov [bmp.skip_whole_row], word ax
