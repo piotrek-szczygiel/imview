@@ -223,7 +223,7 @@ handle_keyboard:
 
     .cursor_up:
         mov ax, word [cursor.y]
-        sub ax, word [cursor.jump]
+        sub ax, word [cursor.jump_y]
         jns .cursor_up_free
         mov ax, 0
         .cursor_up_free:
@@ -232,7 +232,7 @@ handle_keyboard:
 
     .cursor_left:
         mov ax, word [cursor.x]
-        sub ax, word [cursor.jump]
+        sub ax, word [cursor.jump_x]
         jns .cursor_left_free
         mov ax, 0
         .cursor_left_free:
@@ -240,13 +240,13 @@ handle_keyboard:
         ret
 
     .cursor_down:
-        mov ax, word [cursor.jump]
+        mov ax, word [cursor.jump_y]
         add [cursor.y], ax
         ret
 
 
     .cursor_right:
-        mov ax, word [cursor.jump]
+        mov ax, word [cursor.jump_x]
         add [cursor.x], ax
         ret
 
@@ -258,11 +258,13 @@ handle_keyboard:
         ret
         .zoom_in_1:
         mov [zoom], byte 1
-        mov [cursor.jump], word 200
+        mov [cursor.jump_x], word 160 * 2
+        mov [cursor.jump_y], word 100 * 2
         ret
         .zoom_in_0:
         mov [zoom], byte 0
-        mov [cursor.jump], word 100
+        mov [cursor.jump_x], word 160
+        mov [cursor.jump_y], word 100
         ret
 
     .zoom_out:
@@ -274,13 +276,15 @@ handle_keyboard:
 
         .zoom_out_1:
         mov [zoom], byte 1
-        mov [cursor.jump], word 200
+        mov [cursor.jump_x], word 160 * 2
+        mov [cursor.jump_y], word 100 * 2
         mov ax, 320 * 2
         mov dx, 200 * 2
         jmp .zoom_clear
         .zoom_out_3:
         mov [zoom], byte 3
-        mov [cursor.jump], word 400
+        mov [cursor.jump_x], word 160 * 4
+        mov [cursor.jump_y], word 100 * 4
         mov ax, 320 * 4
         mov dx, 200 * 4
         .zoom_clear:
@@ -695,7 +699,8 @@ str_error_bmp_depth     db "This program only handles 8bit and 24bit bitmaps!$"
 
 cursor.x                dw 0
 cursor.y                dw 0
-cursor.jump             dw 100
+cursor.jump_x           dw 160
+cursor.jump_y           dw 100
 cursor.max_x            dw 0
 cursor.max_y            dw 0
 cursor.max_x_zoom1      dw 0
