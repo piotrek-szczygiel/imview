@@ -1,21 +1,24 @@
 ; vim: syntax=fasm
+;
 ; Simple BMP image viewer for DOS
 ; Piotr Szczygieł - Assemblery 2019
-format MZ                                   ; DOS MZ executable
-entry main:start                            ; specify an application entry point
+;
+
+format MZ                       ; DOS MZ executable
+entry main:start
 
 segment main
 start:
-    mov ax, word stack1                     ; point stack segment address
+    mov ax, word stack1         ; point stack segment address
     mov ss, ax
     mov sp, word stack_tail
 
     call argument_read
 
-    mov ax, word text1                      ; point data segment address
+    mov ax, word text1          ; set data segment address
     mov ds, ax
 
-    mov ax, word 0xa000                     ; point VGA memory address
+    mov ax, word 0xa000         ; set VGA buffer address
     mov es, ax
 
     call mode_vga
@@ -29,19 +32,24 @@ start:
         call correct_cursor
         jmp .main_loop
 
+; Switch to text mode and exit
 exit:
     call mode_text
     jmp dos_exit
 
+; Switch to text mode, print an error and exit
+;   DX - error string
 error:
     call mode_text
     call print
 
+; Exit the application
 dos_exit:
     mov al, byte 0
     mov ah, 0x4c
     int 0x21
 
+; Draw the bitmap on screen
 bmp_draw:
     mov di, word 0      ; offset in VGA memory
     call bmp_set_pos
@@ -89,9 +97,9 @@ bmp_draw:
 
             .8_bit:
                 mov cx, word 1
-                mov dx, word char
+                mov dx, word c
                 call file_read
-                mov al, byte [char]
+                mov al, byte [c]
                 jmp .handle_zoom
 
             .24_bit:
@@ -137,6 +145,7 @@ bmp_draw:
         ja .for_each_row
     ret
 
+; Clear the VGA buffer with black color
 clear_vga:
     mov di, 0
     mov cx, word 32000
@@ -144,6 +153,7 @@ clear_vga:
     rep stosw
     ret
 
+; Correct the cursor position if it went out of bounds
 correct_cursor:
     cmp [zoom], byte 0
     je .zoom_x_0
@@ -180,6 +190,7 @@ correct_cursor:
     .cursor_y_ok:
     ret
 
+; Handle the keyboard input
 handle_keyboard:
     xor ah, ah
     int 0x16
@@ -258,13 +269,13 @@ handle_keyboard:
         ret
         .zoom_in_1:
         mov [zoom], byte 1
-        mov [cursor.jump_x], word 160 * 2
-        mov [cursor.jump_y], word 100 * 2
+        mov [cursor.jump_x], word 80 * 2
+        mov [cursor.jump_y], word 50 * 2
         ret
         .zoom_in_0:
         mov [zoom], byte 0
-        mov [cursor.jump_x], word 160
-        mov [cursor.jump_y], word 100
+        mov [cursor.jump_x], word 80
+        mov [cursor.jump_y], word 50
         ret
 
     .zoom_out:
@@ -276,15 +287,15 @@ handle_keyboard:
 
         .zoom_out_1:
         mov [zoom], byte 1
-        mov [cursor.jump_x], word 160 * 2
-        mov [cursor.jump_y], word 100 * 2
+        mov [cursor.jump_x], word 80 * 2
+        mov [cursor.jump_y], word 50 * 2
         mov ax, 320 * 2
         mov dx, 200 * 2
         jmp .zoom_clear
         .zoom_out_3:
         mov [zoom], byte 3
-        mov [cursor.jump_x], word 160 * 4
-        mov [cursor.jump_y], word 100 * 4
+        mov [cursor.jump_x], word 80 * 4
+        mov [cursor.jump_y], word 50 * 4
         mov ax, 320 * 4
         mov dx, 200 * 4
         .zoom_clear:
@@ -300,8 +311,9 @@ handle_keyboard:
     .invalid:
         ret
 
+; Calculate some needed variables depending on zoom, color depth, etc.
 calculate_dimensions:
-    mov ax, word [display.width]
+    mov ax, word 320
     mov [read.width], ax
     cmp [zoom], byte 0
     je .after_zoom_x
@@ -317,7 +329,7 @@ calculate_dimensions:
     mov [read.width], ax
     .after_read_width:
 
-    mov ax, word [display.height]
+    mov ax, word 200
     mov [read.height], ax
     cmp [zoom], byte 0
     je .after_zoom_y
@@ -377,6 +389,7 @@ calculate_dimensions:
 
     ret
 
+; Set file position so it matches cursor position and current zoom
 bmp_set_pos:
     mov cx, word [bmp.data_offset]
     call file_set_pos
@@ -414,6 +427,7 @@ bmp_set_pos:
     .after_y_offset:
     ret
 
+; Read and apply palette from 256-color bitmap
 bmp_read_palette:
     mov dx, 0x03c8
     mov al, 0
@@ -426,13 +440,13 @@ bmp_read_palette:
         call file_read
 
         mov dx, 0x03c9
-        mov al, byte [palette.r]
+        mov al, byte [bgr.r]
         shr al, 2
         out dx, al
-        mov al, byte [palette.g]
+        mov al, byte [bgr.g]
         shr al, 2
         out dx, al
-        mov al, byte [palette.b]
+        mov al, byte [bgr.b]
         shr al, 2
         out dx, al
 
@@ -441,6 +455,7 @@ bmp_read_palette:
         ja .loop
     ret
 
+; Generate 332 palette to be able to display 24bit bitmaps
 generate_332_palette:
     mov dx, 0x03c8
     mov al, 0
@@ -474,6 +489,7 @@ generate_332_palette:
         jne .332_palette
     ret
 
+; Read and parse the bitmap file structure
 bmp_read:
     mov cx, word 2
     mov dx, word bmp.header
@@ -506,40 +522,31 @@ bmp_read:
     mov dx, word bmp.height
     call file_read
 
-    nop
     mov ax, word [bmp.width]
-    mov [display.width], word 320
     cmp ax, word 320
-    jae .wider_than_320
-    mov [display.width], word ax
-    jmp .after_display_width
-    .wider_than_320:
+    jb .after_cursor_max_x
     sub ax, word 320
     mov [cursor.max_x], word ax
     sub ax, word 320
-    js .after_display_width
+    js .after_cursor_max_x
     mov [cursor.max_x_zoom1], word ax
     sub ax, word 640
-    js .after_display_width
+    js .after_cursor_max_x
     mov [cursor.max_x_zoom2], word ax
-    .after_display_width:
+    .after_cursor_max_x:
 
     mov ax, word [bmp.height]
-    mov [display.height], word 200
     cmp ax, word 200
-    jae .higher_than_200
-    mov [display.height], word ax
-    jmp .after_display_height
-    .higher_than_200:
+    jb .after_cursor_max_y
     sub ax, word 200
     mov [cursor.max_y], word ax
     sub ax, word 200
-    js .after_display_height
+    js .after_cursor_max_y
     mov [cursor.max_y_zoom1], word ax
     sub ax, word 400
-    js .after_display_height
+    js .after_cursor_max_Y
     mov [cursor.max_y_zoom2], word ax
-    .after_display_height:
+    .after_cursor_max_y:
 
     mov cx, word 4
     call file_skip
@@ -602,7 +609,7 @@ argument_read:
     mov ax, word text1
     mov es, ax
 
-    mov si, 0x82                            ; offset to first letter of arguments
+    mov si, 0x82        ; offset to first letter of arguments
     mov di, file.name
 
     xor ch, ch
@@ -697,59 +704,50 @@ str_error_file_read     db "Error while reading from file!$"
 str_error_bmp_header    db "Invalid BMP header!$"
 str_error_bmp_depth     db "This program only handles 8bit and 24bit bitmaps!$"
 
-cursor.x                dw 0
-cursor.y                dw 0
-cursor.jump_x           dw 160
-cursor.jump_y           dw 100
-cursor.max_x            dw 0
-cursor.max_y            dw 0
-cursor.max_x_zoom1      dw 0
-cursor.max_y_zoom1      dw 0
-cursor.max_x_zoom2      dw 0
-cursor.max_y_zoom2      dw 0
+cursor.x                dw 0    ; current cursor x position
+cursor.y                dw 0    ; current cursor y position
+cursor.jump_x           dw 80   ; how many column to move while panning
+cursor.jump_y           dw 50   ; how many rows to move while panning
+cursor.max_x            dw 0    ; maximum cursor column while not zoomed out
+cursor.max_y            dw 0    ; maximum cursor row while not zoomed out
+cursor.max_x_zoom1      dw 0    ; maximum cursor column while zoomed out once
+cursor.max_y_zoom1      dw 0    ; maximum cursor row while zoomed out once
+cursor.max_x_zoom2      dw 0    ; maximum cursor column while zoomed out twice
+cursor.max_y_zoom2      dw 0    ; maximum cursor row while zoomed out twice
 
-zoom                    db 0
-zoom.skip_x             rb 1
-zoom.skip_y             rb 1
+zoom                    db 0    ; current zoom factor
+zoom.skip_x             rb 1    ; modulo column skipper
+zoom.skip_y             rb 1    ; modulo row skipper
 
-file.handle             rw 1
-file.name               rb 128
+file.handle             rw 1    ; dos file handle to loaded bmp file
+file.name               rb 128  ; filename retrieved from program argument
 
-display.width           rw 1
-display.height          rw 1
-display.zoom_height     rw 1
+display.zoom_height     rw 1    ; height of the image on current zoom level
 
-read.width              rw 1
-read.height             rw 1
+read.width              rw 1    ; how many bytes to read for each row
+read.height             rw 1    ; how many rows to read
 
-i                       rw 1
-j                       rw 1
-k                       rw 1
+c                       rb 1    ; byte helper variable
+i                       rw 1    ; loop counter
+j                       rw 1    ; inner loop counter
+k                       rw 1    ; helper variable
 
-char                    rb 1
+bgr:                            ; structure for storing pixel color information
+bgr.b                   rb 1    ; blue
+bgr.g                   rb 1    ; green
+bgr.r                   rb 1    ; red
 
-bgr:
-bgr.b                   rb 1
-bgr.g                   rb 1
-bgr.r                   rb 1
+bmp.header              rb 2    ; two first bytes of the bmp file - "BM"
+bmp.data_offset         rd 1    ; file offset at which pixel array begins
+bmp.width               rw 1    ; width of the image
+bmp.height              rw 1    ; height of the image
+bmp.depth               rw 1    ; color depth - 8 or 24
+bmp.padding             rw 1    ; how many bytes to ignore on each row end
 
-bmp.header              rb 2
-bmp.data_offset         rd 1
-bmp.width               rw 1
-bmp.height              rw 1
-bmp.depth               rw 1
-bmp.padding             rw 1
+bmp.skip_whole_row      rw 1    ; how many bytes are in a signle row
+bmp.skip_column_before  rw 1    ; how many bytes are in a row before viewport
+bmp.skip_column_after   rw 1    ; how many bytes are in a row after viewport
 
-bmp.skip_whole_row      rw 1
-bmp.skip_column_before  rw 1
-bmp.skip_column_after   rw 1
-
-palette.quad:
-palette.b               rb 1
-palette.g               rb 1
-palette.r               rb 1
-
-; 256 bytes stack
-segment stack1
+segment stack1                  ; 256 byte stack
 stack_head              rw 127
 stack_tail              rw 1
